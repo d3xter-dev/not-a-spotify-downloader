@@ -33,10 +33,8 @@ func (c *Channel) handlePacket(data []byte) {
 		// fmt.Printf("[channel] Reading in header mode, size=%d\n", dataReader.Len())
 
 		length := uint16(0)
-		var err error = nil
-		for err == nil {
-			err = binary.Read(dataReader, binary.BigEndian, &length)
-
+		for {
+			err := binary.Read(dataReader, binary.BigEndian, &length)
 			if err != nil {
 				break
 			}
@@ -80,5 +78,4 @@ func (c *Channel) handlePacket(data []byte) {
 			}
 		}
 	}
-
 }

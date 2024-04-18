@@ -66,8 +66,8 @@ func StartProcessing(session *core.Session, playlist *Spotify.SelectedListConten
 
 func getBestFileFormat(track *Spotify.Track) *Spotify.AudioFile {
 	bestFormats := []Spotify.AudioFile_Format{
-		Spotify.AudioFile_OGG_VORBIS_320,
 		Spotify.AudioFile_MP3_320,
+		Spotify.AudioFile_OGG_VORBIS_320,
 		Spotify.AudioFile_MP3_256,
 		Spotify.AudioFile_OGG_VORBIS_160,
 		Spotify.AudioFile_MP3_160,

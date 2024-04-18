@@ -208,20 +208,18 @@ func (s *Session) runPollLoop() {
 	for {
 		cmd, data, err := s.stream.RecvPacket()
 		if err != nil {
-			log.Println("Error during RecvPacket: ", err)
-
-			if err == io.EOF {
-				// We've been disconnected, reconnect
-				s.planReconnect()
-				break
-			}
+			s.planReconnect()
+			break
 		} else {
-			s.handle(cmd, data)
+			err = s.handle(cmd, data)
+			if err != nil {
+				fmt.Println("Error handling packet: ", err)
+			}
 		}
 	}
 }
 
-func (s *Session) handle(cmd uint8, data []byte) {
+func (s *Session) handle(cmd uint8, data []byte) error {
 	//fmt.Printf("handle, cmd=0x%x data=%x\n", cmd, data)
 
 	switch {
@@ -229,7 +227,7 @@ func (s *Session) handle(cmd uint8, data []byte) {
 		// Ping
 		err := s.stream.SendPacket(connection.PacketPong, data)
 		if err != nil {
-			log.Fatal("Error handling PacketPing", err)
+			return err
 		}
 
 	case cmd == connection.PacketPongAck:
@@ -238,7 +236,10 @@ func (s *Session) handle(cmd uint8, data []byte) {
 	case cmd == connection.PacketAesKey || cmd == connection.PacketAesKeyError ||
 		cmd == connection.PacketStreamChunkRes:
 		// Audio key and data responses
-		s.player.HandleCmd(cmd, data)
+		err := s.player.HandleCmd(cmd, data)
+		if err != nil {
+			return err
+		}
 
 	case cmd == connection.PacketCountryCode:
 		// Handle country code
@@ -248,7 +249,7 @@ func (s *Session) handle(cmd uint8, data []byte) {
 		// Mercury responses
 		err := s.mercury.Handle(cmd, bytes.NewReader(data))
 		if err != nil {
-			log.Fatal("Handle 0xbx", err)
+			return err
 		}
 
 	case cmd == connection.PacketSecretBlock:
@@ -268,16 +269,10 @@ func (s *Session) handle(cmd uint8, data []byte) {
 		// is [ uint16 id (= 0x001), uint8 len, string license ]
 
 	default:
-		fmt.Printf("Unhandled cmd 0x%x\n", cmd)
+		//fmt.Printf("Unhandled cmd 0x%x\n", cmd)
 	}
-}
 
-func (s *Session) poll() {
-	cmd, data, err := s.stream.RecvPacket()
-	if err != nil {
-		log.Fatal("poll error", err)
-	}
-	s.handle(cmd, data)
+	return nil
 }
 
 func readInt(b *bytes.Buffer) uint32 {

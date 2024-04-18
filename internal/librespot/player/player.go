@@ -84,7 +84,7 @@ func (p *Player) AllocateChannel() *Channel {
 	return channel
 }
 
-func (p *Player) HandleCmd(cmd byte, data []byte) {
+func (p *Player) HandleCmd(cmd byte, data []byte) error {
 	switch {
 	case cmd == connection.PacketAesKey:
 		// Audio key response
@@ -95,13 +95,12 @@ func (p *Player) HandleCmd(cmd byte, data []byte) {
 		if channel, ok := p.seqChans.Load(seqNum); ok {
 			channel.(chan []byte) <- data[4:20]
 		} else {
-			fmt.Printf("[player] Unknown channel for audio key seqNum %d\n", seqNum)
+			return fmt.Errorf("[player] Unknown channel for audio key seqNum %d\n", seqNum)
 		}
 
 	case cmd == connection.PacketAesKeyError:
 		// Audio key error
-		fmt.Println("[player] Audio key error!")
-		fmt.Printf("%x\n", data)
+		return fmt.Errorf("[player] Audio key error!", "%x\n", data)
 
 	case cmd == connection.PacketStreamChunkRes:
 		// Audio data response
@@ -118,10 +117,11 @@ func (p *Player) HandleCmd(cmd byte, data []byte) {
 		if ok {
 			channel.handlePacket(data[2:])
 		} else {
-			fmt.Printf("Unknown channel!\n")
+			return fmt.Errorf("Unknown channel!\n")
 		}
-
 	}
+
+	return nil
 }
 
 func (p *Player) releaseChannel(channel *Channel) {

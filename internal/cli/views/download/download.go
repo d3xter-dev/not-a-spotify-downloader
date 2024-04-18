@@ -107,7 +107,7 @@ func (v *View) Render() string {
 
 	for _, item := range currentlyDownloading {
 		prefix := v.spinner.View()
-		suffix := fmt.Sprintf("(%fs)", time.Now().Sub(item.StartTime).Seconds())
+		suffix := fmt.Sprintf("(%fs)", time.Since(item.StartTime).Seconds())
 
 		maxWidth := max(0, v.width-lipgloss.Width(prefix+suffix)-2)
 
