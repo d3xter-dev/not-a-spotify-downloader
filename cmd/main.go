@@ -62,7 +62,7 @@ func main() {
 	model := InitialModel()
 
 	program := tea.NewProgram(model)
-	program.SetWindowTitle(model.GetView().GetName())
+	program.SetWindowTitle("Not a Spotify Downloader")
 	if _, err := program.Run(); err != nil {
 		log.Fatal(err)
 	}
