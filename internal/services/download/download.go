@@ -92,20 +92,47 @@ func getBestFileFormat(track *Spotify.Track) *Spotify.AudioFile {
 	return nil
 }
 
+type processingState struct {
+	processed  int
+	running    int
+	maxRunning int
+	mutex      sync.Mutex
+	waitGroup  sync.WaitGroup
+}
+
+func (s *processingState) getRunning() int {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.running
+}
+
+func (s *processingState) addRunning() {
+	s.mutex.Lock()
+	s.running++
+	s.mutex.Unlock()
+}
+
+func (s *processingState) stopRunning() {
+	s.mutex.Lock()
+	s.running--
+	s.mutex.Unlock()
+}
+
 func processPlaylist(session *core.Session, playlist *Spotify.SelectedListContent, ch chan Item, playlistDir string) {
-	processed := 0
-	running := 0
-	maxRunning := 5
+	state := processingState{
+		processed:  0,
+		running:    0,
+		maxRunning: 5,
+	}
 
 	playlistItems := playlist.GetContents().GetItems()
 
-	var wg sync.WaitGroup
-	for processed < len(playlistItems) {
-		if running < maxRunning {
-			wg.Add(1)
-			running++
+	for state.processed < len(playlistItems) {
+		if state.getRunning() < state.maxRunning {
+			state.waitGroup.Add(1)
+			state.addRunning()
 
-			trackId := utils.ParseIdFromString(playlistItems[processed].GetUri())
+			trackId := utils.ParseIdFromString(playlistItems[state.processed].GetUri())
 			track, err := session.Mercury().GetTrack(utils.Base62ToHex(trackId))
 			if err != nil {
 				return
@@ -113,8 +140,8 @@ func processPlaylist(session *core.Session, playlist *Spotify.SelectedListConten
 
 			go func(item *Spotify.Track, session *core.Session, playlistDir string, ch chan Item) {
 				defer func() {
-					wg.Done()
-					running--
+					state.waitGroup.Done()
+					state.stopRunning()
 				}()
 
 				ch <- mapSpotTrackToDownloadItem(item, StatusDownloading)
@@ -147,10 +174,10 @@ func processPlaylist(session *core.Session, playlist *Spotify.SelectedListConten
 				ch <- mapSpotTrackToDownloadItem(item, StatusComplete)
 			}(track, session, playlistDir, ch)
 
-			processed++
+			state.processed++
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 	}
 
-	wg.Wait()
+	state.waitGroup.Wait()
 }
