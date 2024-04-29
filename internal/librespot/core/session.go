@@ -2,10 +2,12 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/d3xter-dev/not-a-spotify-downloader/internal/librespot/connection"
@@ -37,6 +39,10 @@ type Session struct {
 	// keys are the encryption keys used to communicate with the server
 	keys crypto.PrivateKeys
 
+	ctx        context.Context
+	cancelFunc context.CancelFunc
+	closing    sync.Mutex
+
 	/// State and variables
 	// deviceId is the device identifier (computer name, Android serial number, ...) sent during auth to the Spotify
 	// servers for this session
@@ -63,6 +69,10 @@ func (s *Session) Player() *player.Player {
 	return s.player
 }
 
+func (s *Session) Context() context.Context {
+	return s.ctx
+}
+
 func (s *Session) Username() string {
 	return s.username
 }
@@ -80,6 +90,8 @@ func (s *Session) Country() string {
 }
 
 func (s *Session) startConnection() error {
+	s.ctx, s.cancelFunc = context.WithCancel(context.Background())
+
 	// First, start by performing a plaintext connection and send the Hello message
 	conn := connection.MakePlainConnection(s.tcpCon, s.tcpCon)
 
@@ -164,20 +176,26 @@ func (s *Session) doConnect() error {
 	return err
 }
 
-func (s *Session) disconnect() {
+func (s *Session) disconnect() error {
 	if s.tcpCon != nil {
 		conn := s.tcpCon.(net.Conn)
 		err := conn.Close()
 		if err != nil {
-			log.Println("Failed to close tcp connection", err)
+			return fmt.Errorf("could not close connection: %+v", err)
 		}
 		s.tcpCon = nil
+		s.cancelFunc()
 	}
+	return nil
 }
 
 func (s *Session) doReconnect() error {
-	s.disconnect()
+	canClose := s.closing.TryLock()
+	if canClose != true {
+		return nil
+	}
 
+	s.disconnect()
 	err := s.doConnect()
 	if err != nil {
 		return err
@@ -188,17 +206,21 @@ func (s *Session) doReconnect() error {
 		return err
 	}
 
-	packet := makeLoginBlobPacket(s.username, s.reusableAuthBlob,
-		Spotify.AuthenticationType_AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS.Enum(), s.deviceId)
+	packet := makeLoginBlobPacket(
+		s.username,
+		s.reusableAuthBlob,
+		Spotify.AuthenticationType_AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS.Enum(),
+		s.deviceId,
+	)
+
+	defer s.closing.Unlock()
 	return s.doLogin(packet, s.username)
 }
 
 func (s *Session) planReconnect() {
 	go func() {
 		time.Sleep(1 * time.Second)
-
 		if err := s.doReconnect(); err != nil {
-			// Try to reconnect again in a second
 			s.planReconnect()
 		}
 	}()
@@ -213,7 +235,8 @@ func (s *Session) runPollLoop() {
 		} else {
 			err = s.handle(cmd, data)
 			if err != nil {
-				fmt.Println("Error handling packet: ", err)
+				s.planReconnect()
+				break
 			}
 		}
 	}
@@ -269,7 +292,7 @@ func (s *Session) handle(cmd uint8, data []byte) error {
 		// is [ uint16 id (= 0x001), uint8 len, string license ]
 
 	default:
-		//fmt.Printf("Unhandled cmd 0x%x\n", cmd)
+		return fmt.Errorf("Unhandled cmd 0x%x\n", cmd)
 	}
 
 	return nil

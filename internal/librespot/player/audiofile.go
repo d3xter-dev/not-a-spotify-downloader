@@ -2,9 +2,11 @@ package player
 
 import (
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/d3xter-dev/not-a-spotify-downloader/internal/librespot/connection"
 	"github.com/d3xter-dev/not-a-spotify-downloader/internal/spotify"
@@ -69,7 +71,7 @@ func (a *AudioFile) Size() uint32 {
 // Read is an implementation of the io.Reader interface. Note that due to the nature of the streaming, we may return
 // zero bytes when we are waiting for audio data from the Spotify servers, so make sure to wait for the io.EOF error
 // before stopping playback.
-func (a *AudioFile) Read(buf []byte) (int, error) {
+func (a *AudioFile) Read(ctx context.Context, buf []byte) (int, error) {
 	length := len(buf)
 	outBufCursor := 0
 	totalWritten := 0
@@ -93,6 +95,12 @@ func (a *AudioFile) Read(buf []byte) (int, error) {
 	chunkIdx := a.chunkIndexAtByte(a.cursor)
 
 	for totalWritten < length {
+		select {
+		case <-ctx.Done():
+			return 0, errors.New("context closed")
+		default:
+		}
+
 		// fmt.Printf("[audiofile] Cursor: %d, len: %d, matching chunk %d\n", a.cursor, length, chunkIdx)
 
 		if chunkIdx >= a.totalChunks() {

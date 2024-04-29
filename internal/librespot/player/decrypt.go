@@ -39,7 +39,7 @@ func (afd *AudioFileDecrypter) DecryptAudioWithBlock(index int, block cipher.Blo
 	// block has its own IV). As we are retrieving 32768 words (131072 bytes) to speed up network operations, we need
 	// to process the data by 4096 bytes blocks to decrypt with the correct key.
 
-	// We pre-calculate the base IV for the first chunk we are processing, then just proceed to add 0x100 at
+	// We pre-calculate the base IV for the first chunk we are processor, then just proceed to add 0x100 at
 	// every iteration.
 	afd.ivInt.SetBytes(AUDIO_AESIV)
 	afd.ivDiff.SetInt64(int64((byteBaseOffset / 4096) * 0x100))

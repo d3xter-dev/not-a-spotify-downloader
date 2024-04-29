@@ -80,9 +80,12 @@ func (v *View) Update(message tea.Msg) tea.Cmd {
 
 	case setPlaylistMsg:
 		v.playlist, v.session = msg.playlist, msg.session
-		ch, err := download.StartProcessing(v.session, v.playlist)
+
+		processor := download.NewProcessor(v.session, download.NewPlaylistStrategy(v.session, v.playlist))
+
+		ch, err := processor.StartProcessing()
 		if err != nil {
-			panic("Failed to start processing playlist: " + err.Error())
+			panic("Failed to start processor playlist: " + err.Error())
 		}
 		v.downloadChannel = ch
 		return WatchDownload(ch)

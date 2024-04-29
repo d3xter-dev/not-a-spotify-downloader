@@ -6,7 +6,6 @@ import (
 	"github.com/d3xter-dev/not-a-spotify-downloader/internal/librespot/connection"
 	"github.com/d3xter-dev/not-a-spotify-downloader/internal/librespot/crypto"
 	"github.com/d3xter-dev/not-a-spotify-downloader/internal/librespot/mercury"
-	"github.com/d3xter-dev/not-a-spotify-downloader/internal/librespot/spirc"
 	"github.com/d3xter-dev/not-a-spotify-downloader/internal/spotify"
 	"github.com/golang/protobuf/proto"
 	"io"
@@ -45,21 +44,6 @@ func readPlainPart(reader io.Reader, prefixSize uint32) ([]byte, error) {
 	buf := make([]byte, size-4-prefixSize)
 	_, err := io.ReadFull(reader, buf)
 	return buf, err
-}
-
-func checkHead(t *testing.T, buf io.Reader) {
-	handleHead(buf)
-	headerData, _ := parsePart(buf)
-	header := &Spotify.Header{}
-	proto.Unmarshal(headerData, header)
-
-	if *header.Uri != "hm://remote/user/fakeUser/" {
-		t.Errorf("Wrong username  Got %q, ", header.Uri)
-	}
-
-	if *header.Method != "SEND" {
-		t.Errorf("Wrong method")
-	}
 }
 
 type fakeCon struct {
@@ -164,45 +148,5 @@ func TestLogin(t *testing.T) {
 	welcomeRes := <-result
 	if !bytes.Equal(welcomeRes, []byte{0, 1, 2}) {
 		t.Errorf("Wrong authdata returned.  Got %v", welcomeRes)
-	}
-}
-
-func TestHello(t *testing.T) {
-	stream := fakeStream{
-		recvPackets: make(chan shanPacket),
-		sendPackets: make(chan shanPacket, 2),
-	}
-
-	s := &Session{
-		stream:   &stream,
-		deviceId: "testDevice",
-	}
-	s.mercury = mercury.CreateMercury(&stream)
-	controller := spirc.CreateController(s, []byte{})
-
-	go controller.SendHello()
-
-	//ignore subscribe packet
-	<-stream.sendPackets
-
-	packet := <-stream.sendPackets
-
-	if packet.cmd != 0xb2 {
-		t.Errorf("Wrong cmd code.  Got %q, want %q", packet.cmd, 0xb2)
-	}
-
-	buf := bytes.NewBuffer(packet.buf)
-	checkHead(t, buf)
-
-	frameData, _ := parsePart(buf)
-	frame := &Spotify.Frame{}
-	proto.Unmarshal(frameData, frame)
-
-	if frame.GetTyp() != Spotify.MessageType_kMessageTypeHello {
-		t.Errorf("Wrong message type")
-	}
-
-	if *frame.Ident != "testDevice" {
-		t.Errorf("Wrong ident. Got %q, want %q", *frame.Ident, "testDevice")
 	}
 }

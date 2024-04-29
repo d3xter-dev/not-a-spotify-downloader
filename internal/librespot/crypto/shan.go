@@ -154,7 +154,7 @@ func crcfunc(c *shn_ctx, i uint32) {
 	c.CRC[N-1] = t
 }
 
-/* Normal MAC word processing: do both stream register and CRC.
+/* Normal MAC word processor: do both stream register and CRC.
  */
 func macfunc(c *shn_ctx, i uint32) {
 	crcfunc(c, i)
@@ -484,7 +484,7 @@ func shn_decrypt(c *shn_ctx, buf []byte, nbytes int) {
 	}
 }
 
-/* Having accumulated a MAC, finish processing and return it.
+/* Having accumulated a MAC, finish processor and return it.
  * Note that any unprocessed bytes are treated as if
  * they were encrypted zero bytes, so plaintext (zero) is accumulated.
  */
