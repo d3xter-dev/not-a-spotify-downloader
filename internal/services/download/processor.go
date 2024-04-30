@@ -2,6 +2,7 @@ package download
 
 import (
 	"context"
+	"errors"
 	"github.com/d3xter-dev/not-a-spotify-downloader/internal/librespot/core"
 	"github.com/d3xter-dev/not-a-spotify-downloader/internal/librespot/utils"
 	Spotify "github.com/d3xter-dev/not-a-spotify-downloader/internal/spotify"
@@ -35,20 +36,22 @@ func (p *Processor) StartProcessing() (chan Item, error) {
 		return nil, err
 	}
 
-	go processTracks(p.strategy, p.session, p.returnChannel)
+	go startWorkers(p.strategy, p.session, p.returnChannel)
 
 	return p.returnChannel, nil
 }
 
-func processTracks(strategy Strategy, session *core.Session, returnChannel chan Item) {
+func startWorkers(strategy Strategy, session *core.Session, returnChannel chan Item) {
 	state := &State{
-		processed:  0,
-		running:    0,
-		maxRunning: 5,
-		isPaused:   false,
+		isPaused: false,
 	}
 
 	playlistItems := strategy.GetItems()
+	for _, item := range playlistItems {
+		state.addToQueue(&QueueItem{
+			item: item,
+		})
+	}
 
 	go func() {
 		for {
@@ -61,60 +64,66 @@ func processTracks(strategy Strategy, session *core.Session, returnChannel chan 
 		}
 	}()
 
-	for state.processed < len(playlistItems) {
-		time.Sleep(100 * time.Millisecond)
+	for i := 0; i < 5; i++ {
+		go func() {
+			for {
+				if state.getIsPaused() {
+					time.Sleep(150 * time.Millisecond)
+					continue
+				}
 
-		if state.getIsPaused() {
-			continue
-		}
+				item, err := state.nextItem()
+				if err != nil {
+					break
+				}
 
-		if state.getRunning() < state.maxRunning {
-			state.addRunning()
+				err = processItem(processOptions{
+					session:       session,
+					item:          item.item,
+					returnChannel: returnChannel,
+					saveDir:       strategy.GetSaveDir(),
+				})
 
-			// check again because state might have changed
-			if state.getIsPaused() {
-				state.stopRunning()
-				continue
+				if err != nil {
+					state.retryItem(item)
+				}
 			}
-
-			trackId := utils.ParseIdFromString(playlistItems[state.processed].GetUri())
-			track, err := session.Mercury().GetTrack(utils.Base62ToHex(trackId))
-			if err != nil {
-				continue
-			}
-
-			go processTrack(processOptions{
-				session:       session,
-				track:         track,
-				state:         state,
-				returnChannel: returnChannel,
-				saveDir:       strategy.GetSaveDir(),
-			})
-
-			state.processed++
-		}
+		}()
 	}
 }
 
 type processOptions struct {
 	session *core.Session
-	track   *Spotify.Track
-	state   *State
+	item    *Spotify.Item
 
 	returnChannel chan Item
 	saveDir       string
 }
 
-func processTrack(options processOptions) {
-	track := options.track
+func processItem(options processOptions) error {
 	session := options.session
-	state := options.state
+	item := options.item
 	ctx, cancel := context.WithTimeout(options.session.Context(), 60*time.Second)
 
+	trackId := utils.ParseIdFromString(item.GetUri())
+	track, err := session.Mercury().GetTrack(utils.Base62ToHex(trackId))
+
 	defer func() {
-		state.stopRunning()
 		cancel()
 	}()
+
+	if err != nil {
+		return err
+	}
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	bestFile := getBestFileFormat(track)
+	if bestFile == nil {
+		return errors.New("no file found")
+	}
 
 	var SendStatusUpdate = func(status Status) {
 		options.returnChannel <- mapSpotTrackToDownloadItem(track, status)
@@ -122,21 +131,10 @@ func processTrack(options processOptions) {
 
 	SendStatusUpdate(StatusDownloading)
 
-	if ctx.Err() != nil {
-		SendStatusUpdate(StatusFailed)
-		return
-	}
-
-	bestFile := getBestFileFormat(track)
-	if bestFile == nil {
-		SendStatusUpdate(StatusFailed)
-		return
-	}
-
 	file, err := session.Player().LoadTrack(bestFile, track.GetGid())
 	if err != nil {
 		SendStatusUpdate(StatusFailed)
-		return
+		return err
 	}
 
 	buffer := make([]byte, 0, 512)
@@ -150,7 +148,7 @@ func processTrack(options processOptions) {
 			}
 
 			SendStatusUpdate(StatusFailed)
-			return
+			return err
 		}
 
 		if len(buffer) == cap(buffer) {
@@ -166,8 +164,9 @@ func processTrack(options processOptions) {
 	err = os.WriteFile(out, buffer, os.ModePerm)
 	if err != nil {
 		SendStatusUpdate(StatusFailed)
-		return
+		return err
 	}
 
 	SendStatusUpdate(StatusComplete)
+	return nil
 }

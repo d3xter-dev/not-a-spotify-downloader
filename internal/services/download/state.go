@@ -1,20 +1,27 @@
 package download
 
-import "sync"
+import (
+	"errors"
+	Spotify "github.com/d3xter-dev/not-a-spotify-downloader/internal/spotify"
+	"sync"
+)
 
 type State struct {
-	processed  int
-	running    int
-	maxRunning int
+	queue      []*QueueItem
 	isPaused   bool
 	mutex      sync.Mutex
 	pauseMutex sync.Mutex
 }
 
+type QueueItem struct {
+	retries int
+	item    *Spotify.Item
+}
+
 func (s *State) setPause(val bool) {
 	s.pauseMutex.Lock()
 	s.isPaused = val
-	defer s.pauseMutex.Unlock()
+	s.pauseMutex.Unlock()
 }
 
 func (s *State) getIsPaused() bool {
@@ -23,20 +30,29 @@ func (s *State) getIsPaused() bool {
 	return s.isPaused
 }
 
-func (s *State) getRunning() int {
+func (s *State) addToQueue(item *QueueItem) {
+	s.mutex.Lock()
+	s.queue = append(s.queue, item)
+	s.mutex.Unlock()
+}
+
+func (s *State) nextItem() (QueueItem, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	return s.running
+
+	if len(s.queue) == 0 {
+		return QueueItem{}, errors.New("queue is empty")
+	}
+
+	var nextItem *QueueItem
+	nextItem, s.queue = s.queue[0], s.queue[1:]
+
+	return *nextItem, nil
 }
 
-func (s *State) addRunning() {
-	s.mutex.Lock()
-	s.running++
-	s.mutex.Unlock()
-}
-
-func (s *State) stopRunning() {
-	s.mutex.Lock()
-	s.running--
-	s.mutex.Unlock()
+func (s *State) retryItem(item QueueItem) {
+	item.retries++
+	if item.retries <= 3 {
+		s.addToQueue(&item)
+	}
 }
